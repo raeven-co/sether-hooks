@@ -12,6 +12,8 @@ jobs:
     # and most users run their agents there. Windows install is unsupported.
     runs-on: ${{ matrix.os }}
     strategy:
+      # One failure must not cancel the other jobs and hide their results.
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
         # The package runs on Node >=18; vitest 4 needs 20+ to run the tests.
