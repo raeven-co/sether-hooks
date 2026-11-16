@@ -1,0 +1,68 @@
+{
+  "name": "@raeven-co/sether-hooks",
+  "version": "0.1.0",
+  "description": "Stops prompts with personal data or secrets before Claude Code, Codex or Gemini CLI sends them. Local, no network.",
+  "type": "module",
+  "bin": {
+    "sether-hook": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "pretest": "npm run build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src test --max-warnings 0",
+    "format": "prettier --write src test",
+    "format:check": "prettier --check src test",
+    "prepublishOnly": "npm run typecheck && npm run lint && npm run check:regex && npm test && npm run check:ascii",
+    "check:regex": "node scripts/check-regex-safety.mjs",
+    "check:ascii": "node scripts/check-ascii-dist.mjs"
+  },
+  "dependencies": {
+    "@raeven-co/sether": "^0.8.1",
+    "libphonenumber-js": "^1.11.20"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.10.0",
+    "eslint": "^10.4.1",
+    "prettier": "^3.4.0",
+    "safe-regex2": "^4.0.1",
+    "tsup": "^8.5.1",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.61.0",
+    "vitest": "^4.1.8"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "ai",
+    "security",
+    "pii",
+    "secrets",
+    "redaction",
+    "privacy",
+    "claude-code",
+    "codex",
+    "gemini-cli",
+    "hooks",
+    "guardrails"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/raeven-co/sether-hooks.git"
+  },
+  "license": "MIT",
+  "author": "Godfrey Lebo <emorylebo@gmail.com> (Raeven Company LTD)",
+  "sideEffects": false,
+  "overrides": {
+    "minimatch": "^11.0.1"
+  }
+}

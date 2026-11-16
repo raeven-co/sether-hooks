@@ -1,0 +1,36 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # required for npm trusted publishing (OIDC) and provenance
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+
+      # Staged publishing needs npm 11.15.0 or later; Node 22 ships npm 10.
+      - run: npm install -g npm@^11.15.0
+
+      - run: npm ci
+
+      # Same setup as @raeven-co/sether: npm trusted publishing (npmjs.com ->
+      # package settings -> Trusted Publisher: raeven-co/sether-hooks, workflow
+      # publish.yml, stage publish only). No stored token. The version goes
+      # live only after a maintainer approves it with 2FA: npmjs.com -> Staged
+      # Packages, or `npm stage approve <stage-id>`.
+      # prepublishOnly runs first: typecheck + lint + check:regex + test (builds) + check:ascii
+      - name: Stage release on npm
+        run: npm stage publish --provenance --access public
