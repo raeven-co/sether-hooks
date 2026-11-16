@@ -189,4 +189,4 @@ sether-hook scan [text]          check text (or stdin), print masks and the clea
 sether-hook check --agent <a>    what the agent runs: hook JSON on stdin, decision on stdout
 ```
 
-MIT. Part of [Sether](https://sether.raevenmarket.com.ng).
+MIT. Part of [Sether](https://sether.ai).
