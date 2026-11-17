@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/raeven-co/sether-hooks/main/assets/readme/sether-hooks-hero.webp" width="840" alt="Animated terminal demo: a Claude Code prompt containing an AWS key and an email address is stopped by the Sether hook before it is sent, with zero tokens sent. The hook lists the two items, masked, and offers a clean version with [AWS_KEY_1] and [EMAIL_1] placeholders, which is then sent to the model.">
+</p>
+
 # @raeven-co/sether-hooks
 
 Stops a prompt that carries personal data or a secret **before** Claude Code,
@@ -30,6 +34,10 @@ Everything runs on your machine. The hook makes no network calls.
 A ChatGPT plugin, an MCP server or a connector is called *after* the model
 already has your prompt. A prompt hook runs before the agent sends anything,
 so it is the one place a local check can actually stop the text.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/raeven-co/sether-hooks/main/assets/readme/sether-hooks-flow.webp" width="840" alt="Animated diagram: your prompt goes to the prompt hook on your machine first. A prompt with an AWS key and an email is blocked at the hook, nothing crosses to the model in the cloud, and a clean version with placeholders comes back to you. The clean prompt then passes the hook and reaches the model with placeholders only.">
+</p>
 
 ## Install
 
@@ -67,7 +75,7 @@ prompt through unchecked. Check after any Node change:
 
 ```
 $ sether-hook status
-sether-hook 0.1.0
+sether-hook 0.1.1
   Claude Code: OK (/Users/you/.claude/settings.json)
   Codex: PROBLEM (/Users/you/.codex/hooks.json)
     - Node is no longer at /Users/you/.nvm/versions/node/v22.11.0/bin/node (upgraded or moved?)

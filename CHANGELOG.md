@@ -1,6 +1,15 @@
 # Changelog
 
-## 0.1.0 - unreleased
+## 0.1.1 - unreleased
+
+Documentation only. No change to the hook, the installer or detection.
+
+- README: an animated terminal demo at the top and an animated diagram of
+  where the hook sits (your machine, before the model), so the package page
+  explains itself at a glance. The images live in the repository, not in the
+  npm package.
+
+## 0.1.0 - 2026-11-16
 
 First release.
 

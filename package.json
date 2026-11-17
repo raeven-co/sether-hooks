@@ -1,6 +1,6 @@
 {
   "name": "@raeven-co/sether-hooks",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Stops prompts with personal data or secrets before Claude Code, Codex or Gemini CLI sends them. Local, no network.",
   "type": "module",
   "bin": {
