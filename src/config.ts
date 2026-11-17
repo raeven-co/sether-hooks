@@ -9,6 +9,8 @@
 //   SETHER_HOOK_FAIL_OPEN=1  let prompts through when the check itself fails
 //   SETHER_HOOK_STATE_DIR  where the resend hash lives (default: a per-user temp dir)
 
+import { createHash } from 'node:crypto';
+
 import { DEFAULT_CONFIG, type EngineConfig } from './engine/engine.js';
 
 type Env = Readonly<Record<string, string | undefined>>;
@@ -34,4 +36,17 @@ export function configFromEnv(env: Env): EngineConfig {
 
 export function failOpenFromEnv(env: Env): boolean {
   return on(env.SETHER_HOOK_FAIL_OPEN);
+}
+
+/** A short hash of the detection settings (never the ignored values themselves),
+ *  so the hook and the gateway can tell whether they check the same way. */
+export function configFingerprint(cfg: EngineConfig): string {
+  const canonical = JSON.stringify({
+    network: cfg.network,
+    identity: cfg.identity,
+    highEntropy: cfg.highEntropy,
+    phoneRegions: cfg.phoneRegions.map((r) => r.trim().toUpperCase()).sort(),
+    ignoreValues: [...cfg.ignoreValues].sort(),
+  });
+  return createHash('sha256').update(canonical).digest('hex').slice(0, 16);
 }

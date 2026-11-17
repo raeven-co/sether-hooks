@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // sether-hook: stops prompts that carry personal data or secrets before a
-// coding agent sends them. Runs locally; makes no network calls.
+// coding agent sends them. The hook runs locally and makes no network calls;
+// `sether-hook gateway` cleans Claude Code's requests and forwards only the
+// clean version.
 
 import { accessSync, constants } from 'node:fs';
 import { homedir } from 'node:os';
@@ -10,8 +12,11 @@ import { fileURLToPath } from 'node:url';
 import { AGENT_NAMES, isAgent, type Agent } from './agents.js';
 import { check } from './check.js';
 import { copyToClipboard } from './clipboard.js';
-import { configFromEnv, failOpenFromEnv } from './config.js';
+import { configFingerprint, configFromEnv, failOpenFromEnv } from './config.js';
 import { createDetect } from './engine/engine.js';
+import { cleanRequest, FindingCache, PlaceholderBook } from './gateway/clean.js';
+import { gatewayAnswers, gatewayCandidate } from './gateway/probe.js';
+import { createGateway, DEFAULT_PORT, DEFAULT_UPSTREAM } from './gateway/server.js';
 import { labelFor } from './engine/labels.js';
 import { maskValue } from './engine/mask.js';
 import {
@@ -34,6 +39,9 @@ Usage:
   sether-hook status               show where the hook is installed and whether it will run
   sether-hook scan [text]          check text (or stdin) and print the clean version
   sether-hook check --agent <a>    what the agent runs: hook JSON on stdin
+  sether-hook gateway [--port N] [--upstream URL]
+                                   clean Claude Code's requests instead of stopping
+                                   prompts (API keys and company gateways only)
 
 Options:
   --project   use the settings file in this directory instead of your home
@@ -96,14 +104,18 @@ function onPath(cmd: string): boolean {
 async function runCheck(args: string[]): Promise<number> {
   const at = args.indexOf('--agent');
   const agent = agentArg(at >= 0 ? args[at + 1] : undefined);
-  const res = check(await readStdin(), {
+  const stdin = await readStdin();
+  const config = configFromEnv(process.env);
+  const base = agent === 'claude' ? gatewayCandidate(process.env) : null;
+  const res = check(stdin, {
     agent,
-    config: configFromEnv(process.env),
+    config,
     copy: args.includes('--copy'),
     failOpen: failOpenFromEnv(process.env),
     now: Date.now(),
     stateDir: process.env.SETHER_HOOK_STATE_DIR,
     copyToClipboard: (text) => copyToClipboard(text),
+    gatewayActive: base ? await gatewayAnswers(base, configFingerprint(config)) : false,
   });
   if (res.stdout) process.stdout.write(`${res.stdout}\n`);
   if (res.stderr) process.stderr.write(res.stderr);
@@ -233,6 +245,85 @@ function runStatus(args: string[]): number {
   return broken.length > 0 ? 1 : 0;
 }
 
+/** `--port N` and `--upstream URL`; anything else is a usage error. */
+function gatewayArgs(args: string[]): { port: number; upstream: URL } {
+  let port = DEFAULT_PORT;
+  let upstream = DEFAULT_UPSTREAM;
+  for (let i = 0; i < args.length; i++) {
+    const flag = args[i];
+    const value = args[i + 1];
+    if ((flag === '--port' || flag === '--upstream') && value !== undefined) {
+      if (flag === '--port') port = Number(value);
+      else upstream = value;
+      i += 1;
+    } else {
+      throw new UsageError(`unknown or incomplete option ${flag ?? ''}`);
+    }
+  }
+  if (!Number.isInteger(port) || port < 1 || port > 65535)
+    throw new UsageError('--port must be 1-65535');
+  let url: URL;
+  try {
+    url = new URL(upstream);
+  } catch {
+    throw new UsageError(`--upstream is not a URL: ${upstream}`);
+  }
+  const local = ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && local)) {
+    throw new UsageError('--upstream must use https:// (http:// only for 127.0.0.1 or localhost)');
+  }
+  return { port, upstream: url };
+}
+
+async function runGateway(args: string[]): Promise<number> {
+  const { port, upstream } = gatewayArgs(args);
+  const config = configFromEnv(process.env);
+  const detect = createDetect(config);
+  // One cache and one placeholder book for the gateway's lifetime: a value
+  // keeps its placeholder from turn to turn, and in every conversation.
+  const cache = new FindingCache();
+  const book = new PlaceholderBook();
+  const server = createGateway({
+    upstream,
+    version: VERSION,
+    configFingerprint: configFingerprint(config),
+    clean: (body) => cleanRequest(body, { detect, cache, book }),
+    log: (line) => process.stderr.write(`${new Date().toISOString().slice(11, 19)} ${line}\n`),
+  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(port, '127.0.0.1', () => resolve());
+    });
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    throw new Error(
+      code === 'EADDRINUSE' ? `port ${port} is in use; pass --port with another one` : String(err),
+      { cause: err },
+    );
+  }
+  const base = `http://127.0.0.1:${port}`;
+  process.stdout.write(
+    [
+      `Sether gateway is running on ${base} and sends only clean requests to ${upstream.origin}.`,
+      'Start Claude Code with:',
+      `  ANTHROPIC_BASE_URL=${base} claude`,
+      'It needs an API key (ANTHROPIC_API_KEY) or a company gateway token. Claude plan logins are refused.',
+      'Leave this running. If it stops, Claude Code requests fail instead of going out uncleaned.',
+      '',
+    ].join('\n'),
+  );
+  await new Promise<void>((resolve) => {
+    const stop = (): void => {
+      server.close(() => resolve());
+      server.closeAllConnections();
+    };
+    process.once('SIGINT', stop);
+    process.once('SIGTERM', stop);
+  });
+  return 0;
+}
+
 async function main(argv: string[]): Promise<number> {
   const [command, ...args] = argv;
   switch (command) {
@@ -246,6 +337,8 @@ async function main(argv: string[]): Promise<number> {
       return runUninstall(args);
     case 'status':
       return runStatus(args);
+    case 'gateway':
+      return runGateway(args);
     case '--version':
     case '-v':
       process.stdout.write(`${VERSION}\n`);

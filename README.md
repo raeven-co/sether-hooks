@@ -27,7 +27,9 @@ $ claude
 It uses each agent's own, documented prompt hook. Detection is the
 [`@raeven-co/sether`](https://www.npmjs.com/package/@raeven-co/sether) engine,
 tuned the same way as the Sether VS Code extension for prompts full of code.
-Everything runs on your machine. The hook makes no network calls.
+Everything runs on your machine. The hook makes no calls off your machine; the
+optional [gateway](#gateway-clean-the-request-instead-of-stopping-it) forwards
+only cleaned requests.
 
 ## Why a hook and not a plugin
 
@@ -75,7 +77,7 @@ prompt through unchecked. Check after any Node change:
 
 ```
 $ sether-hook status
-sether-hook 0.1.1
+sether-hook 0.2.0
   Claude Code: OK (/Users/you/.claude/settings.json)
   Codex: PROBLEM (/Users/you/.codex/hooks.json)
     - Node is no longer at /Users/you/.nvm/versions/node/v22.11.0/bin/node (upgraded or moved?)
@@ -89,6 +91,61 @@ agent.
 Each agent runs `sether-hook check --agent <claude|codex|gemini>` on its
 prompt event: `UserPromptSubmit` for Claude Code and Codex, `BeforeAgent` for
 Gemini CLI. See each agent's hook documentation for where the entry goes.
+
+## Gateway: clean the request instead of stopping it
+
+A prompt hook can only stop a prompt: neither Claude Code nor Codex lets a hook
+change one, so you send the clean version yourself. For Claude Code with an API
+key or a company gateway, the gateway removes that step. Claude Code sends its
+model requests to Sether on your machine, each request is cleaned, and only
+the clean version goes on to Anthropic.
+
+```bash
+sether-hook gateway                                # leave it running
+ANTHROPIC_BASE_URL=http://127.0.0.1:8742 claude    # in another terminal
+```
+
+- **Everything the model reads is cleaned**: your prompt, earlier turns, files
+  the agent reads, command output, tool calls (keys and numbers included),
+  citations and text documents. Each value becomes a placeholder
+  (`[EMAIL_1]`) that stays the same for as long as the gateway runs, and a
+  value caught once is replaced wherever else it appears, including the bare
+  password from a `DB_PASSWORD=…` line or a database URL.
+- **Placeholders live in memory only.** Nothing is written to disk, so if the
+  gateway restarts during a conversation, start a new conversation: the
+  numbering starts again.
+- **Your terminal is unchanged.** The model sees and answers with
+  placeholders. Putting real values back into replies, and into commands and
+  file edits on your machine, is next (see the
+  [roadmap](https://sether.ai/roadmap)).
+- **Claude plan logins (Pro, Max) are refused** with a message saying so, and
+  nothing is forwarded. A plan login belongs to Anthropic's own app; use
+  `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` for a company gateway, or keep the
+  prompt hook. Note that in our tests Claude Code sent its plan login token to
+  whatever `ANTHROPIC_BASE_URL` pointed at, so never point it at a server you
+  don't trust.
+- **It fails closed.** A request it can't check gets an error and is never
+  forwarded. If the gateway stops, Claude Code's requests fail rather than go
+  out uncleaned. A conversation whose earlier signed reasoning holds a raw
+  value (one started without the gateway) is refused, since that block can't
+  be edited; start a new one.
+- **It only talks to Claude Code.** It listens on 127.0.0.1, refuses requests
+  addressed to any other host name (DNS rebinding) and requests from web
+  pages, and forwards only the two message endpoints. Anything else is
+  answered locally.
+- **The hook steps aside only when it is safe to.** With the prompt hook also
+  installed, a prompt is let through when `ANTHROPIC_BASE_URL` points at a
+  running Sether gateway that uses the same `SETHER_*` settings, since the
+  gateway cleans it. With any other address, different settings, or Claude
+  Code set to Bedrock, Vertex or Foundry (which ignore `ANTHROPIC_BASE_URL`),
+  the hook works as before.
+- `--upstream https://gateway.example.com/anthropic` sends to a company
+  gateway instead of Anthropic (https only); `--port` changes the port. The
+  same `SETHER_*` settings apply. Each request logs one line with counts and
+  types, never values.
+- **Not covered yet**: images and PDFs (sent as they are), tool definitions
+  (including MCP server descriptions), and traffic MCP servers send on their
+  own. Codex support is planned.
 
 ## What it stops, and what it lets through
 
@@ -164,12 +221,13 @@ work until that is fixed.
   hooks only in a trusted project.
 - **A prompt it can't check in time is stopped.** Agents give a hook about
   30 seconds, and on a timeout Codex and Gemini CLI let the prompt through. So
-  the scan has a 15-second budget and a 2-million-character cap; past either,
+  the scan has a 12-second budget and a 2-million-character cap; past either,
   the hook stops the prompt and asks you to split it (unless
   `SETHER_HOOK_FAIL_OPEN=1`). On an M-series Mac a 20,000-row contact CSV
   (1.3 MB) takes about 2 seconds and 900 KB of minified JSON about 7.
-- **It checks what you type.** Files the agent reads, tool output, and
-  attachments are not prompts and are not covered.
+- **The hook checks what you type.** Files the agent reads, tool output, and
+  attachments are not prompts and are not covered by the hook. With Claude
+  Code and an API key, the gateway covers files and tool output too.
 
 ## Tested
 
@@ -180,12 +238,23 @@ work until that is fixed.
   with zero input and output tokens.
 - Gemini CLI: built and unit-tested against its documented hook contract, not
   yet run against a real Gemini CLI.
-- `npm test`: 162 checks. They include every case from two independent
+- Gateway: Claude Code 2.1.220 through the gateway to a fake Anthropic
+  server. Across a prompt with an AWS key, an email and a phone, then a tool
+  call whose output held another email, the server received placeholders
+  only. With a plan login, Claude Code showed the gateway's refusal at once
+  and nothing was forwarded.
+- Gateway, live (2026-11-17): Claude Code through the gateway to Anthropic's
+  real API on Claude Haiku 4.5. The API accepted the cleaned requests, and
+  asked to repeat a key, an email and a file's contact details, the model
+  could only name `[AWS_KEY_1]`, `[EMAIL_1]`, `[EMAIL_2]` and `[PHONE_1]`.
+  `scripts/live-check.sh` repeats this check.
+- `npm test`: 253 checks. They include every case from four independent
   review passes (leaks, partial clean versions, timing, state handling,
   installer ownership, false positives, format gaps, block-message masks), chunked scanning against a single
   pass on random prompts, a run with all network access blocked, and the
   installer against symlinked, permission-restricted and invalid settings
-  files.
+  files, and the gateway's cleaning, refusals and fail-closed paths against a
+  fake upstream, including every finding from its own review.
 
 ## Command reference
 
@@ -195,6 +264,8 @@ sether-hook uninstall <claude|codex|gemini> [--project]
 sether-hook status               where the hook is installed and whether it will run; exit 1 on a problem
 sether-hook scan [text]          check text (or stdin), print masks and the clean version; exit 1 if found
 sether-hook check --agent <a>    what the agent runs: hook JSON on stdin, decision on stdout
+sether-hook gateway [--port 8742] [--upstream URL]
+                                 clean Claude Code's requests instead of stopping prompts
 ```
 
 MIT. Part of [Sether](https://sether.ai).

@@ -1,7 +1,9 @@
 // The built CLI, run the way an agent runs it: JSON on stdin, decision on stdout.
 // `npm test` builds first (pretest), so dist/cli.js is always current.
 
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { createServer, get } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import { configFingerprint, configFromEnv } from '../src/config.js';
 import { VERSION } from '../src/version.js';
 import { AWS_KEY } from './fixtures.js';
 
@@ -20,6 +23,8 @@ const run = (args: string[], stdin = '', env: Record<string, string> = {}) =>
     env: {
       ...process.env,
       SETHER_HOOK_STATE_DIR: mkdtempSync(join(tmpdir(), 'sether-cli-')),
+      // A gateway running on the developer's machine must not change results.
+      ANTHROPIC_BASE_URL: '',
       ...env,
     },
   });
@@ -147,5 +152,59 @@ describe('sether-hook (built): install, status, usage errors', () => {
 
   it('check without --agent is a usage error, not a guess', () => {
     expect(run(['check', 'claude']).status).toBe(64);
+  });
+});
+
+describe('sether-hook gateway (built)', () => {
+  it('rejects bad options with a usage error instead of starting', () => {
+    for (const args of [
+      ['gateway', '--bogus'],
+      ['gateway', '--port'],
+      ['gateway', '--port', '0'],
+      ['gateway', '--upstream', 'http://example.com'],
+      ['gateway', '--upstream', 'not a url'],
+    ]) {
+      expect(run(args).status).toBe(64);
+    }
+  });
+
+  it('listens on loopback, answers the health probe and stops cleanly on SIGTERM', async () => {
+    const probe = createServer();
+    const port = await new Promise<number>((resolve) =>
+      probe.listen(0, '127.0.0.1', () => resolve((probe.address() as AddressInfo).port)),
+    );
+    await new Promise<void>((resolve) => probe.close(() => resolve()));
+
+    const child = spawn(process.execPath, [CLI, 'gateway', '--port', String(port)], {
+      env: { ...process.env, ANTHROPIC_BASE_URL: '' },
+    });
+    const exited = new Promise<number | null>((resolve) =>
+      child.on('exit', (code) => resolve(code)),
+    );
+    let out = '';
+    await new Promise<void>((resolve, reject) => {
+      child.stdout.on('data', (chunk: Buffer) => {
+        out += chunk.toString('utf8');
+        if (out.includes('is running')) resolve();
+      });
+      child.on('exit', () => reject(new Error(`gateway exited early: ${out}`)));
+    });
+    expect(out).toContain(`ANTHROPIC_BASE_URL=http://127.0.0.1:${port} claude`);
+
+    const health = await new Promise<string>((resolve, reject) => {
+      get(`http://127.0.0.1:${port}/__sether/health`, (res) => {
+        let body = '';
+        res.on('data', (c: Buffer) => (body += c.toString('utf8')));
+        res.on('end', () => resolve(body));
+      }).on('error', reject);
+    });
+    expect(JSON.parse(health)).toEqual({
+      sether: 'gateway',
+      version: VERSION,
+      config: configFingerprint(configFromEnv(process.env)),
+    });
+
+    child.kill('SIGTERM');
+    expect(await exited).toBe(0);
   });
 });

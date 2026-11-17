@@ -29,6 +29,9 @@ export interface CheckOptions {
   copyToClipboard?: (text: string) => boolean;
   /** Scan time budget and chunking (tests shorten the budget). */
   limits?: ScanLimits;
+  /** Claude Code's requests go through a running Sether gateway, which cleans
+   *  them, so the hook lets the prompt through instead of stopping it. */
+  gatewayActive?: boolean;
 }
 
 export interface CheckResult {
@@ -110,6 +113,7 @@ function failure(err: unknown, opts: CheckOptions): CheckResult {
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 export function check(stdin: string, opts: CheckOptions): CheckResult {
+  if (opts.gatewayActive === true && opts.agent === 'claude') return ALLOW;
   // Only a failure to read or scan the prompt goes through `failure` (where
   // fail-open may apply). Once findings exist the prompt is stopped, whatever
   // else goes wrong: a state file that cannot be written must never turn a

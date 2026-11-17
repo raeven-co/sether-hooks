@@ -1,6 +1,27 @@
 # Changelog
 
-## 0.1.1 - unreleased
+## 0.2.0 - unreleased
+
+- `sether-hook gateway`: a local gateway for Claude Code that cleans each model
+  request instead of stopping the prompt, so nothing needs sending twice. Point
+  Claude Code at it with `ANTHROPIC_BASE_URL=http://127.0.0.1:8742`. It cleans
+  the prompt, earlier turns, files the agent read, command output and tool
+  calls; the same value keeps the same placeholder, and a value caught once is
+  replaced everywhere it appears. For API keys and company gateways
+  (`--upstream`); Claude plan logins are refused with an explanation (403, so
+  Claude Code shows it at once instead of retrying). Loopback only, refuses
+  other host names and web pages, forwards only the two message endpoints, and
+  never forwards a request it could not check. Placeholders stay the same for
+  the gateway's lifetime (in memory only), bare secrets from caught
+  assignments and database URLs are replaced too, and a conversation whose
+  signed reasoning holds a raw value is refused.
+- The prompt hook steps aside for Claude Code when `ANTHROPIC_BASE_URL` points
+  at a running Sether gateway with the same detection settings (checked with a
+  local health request, 800 ms limit), and never when Claude Code is set to
+  Bedrock, Vertex or Foundry. Otherwise unchanged.
+- README: the scan budget is 12 seconds, not 15.
+
+## 0.1.1 - 2026-11-17
 
 Documentation only. No change to the hook, the installer or detection.
 
