@@ -50,7 +50,11 @@ export function gatewayAnswers(
 ): Promise<boolean> {
   return new Promise((resolve) => {
     let settled = false;
-    let timer: NodeJS.Timeout | undefined;
+    // Runs after timeoutMs, by which time `req` and `done` exist.
+    const timer = setTimeout(() => {
+      req.destroy();
+      done(false);
+    }, timeoutMs);
     const done = (answer: boolean): void => {
       if (settled) return;
       settled = true;
@@ -82,10 +86,6 @@ export function gatewayAnswers(
       res.on('error', () => done(false));
       res.on('close', () => done(false));
     });
-    timer = setTimeout(() => {
-      req.destroy();
-      done(false);
-    }, timeoutMs);
     req.on('error', () => done(false));
   });
 }
