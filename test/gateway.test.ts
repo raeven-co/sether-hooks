@@ -6,6 +6,7 @@
 // thinking blocks with signatures, tool_use and tool_result.
 
 import {
+  Agent,
   createServer,
   request,
   type IncomingHttpHeaders,
@@ -464,10 +465,54 @@ describe('gateway server', () => {
         ['POST', '/api/event_logging/batch'],
         ['PUT', '/v1/messages'],
       ] as const) {
-        const reply = await send(port, method, path, { headers: API_KEY, body: '{}' });
+        // GET carries no body: Node's client would send one unframed, which
+        // no real client does and Node 20's server rejects as a bad request.
+        const body = method === 'GET' ? undefined : '{}';
+        const reply = await send(port, method, path, { headers: API_KEY, body });
         expect(reply.status).toBe(404);
       }
       expect(seen).toHaveLength(0);
+    });
+  });
+
+  it('keeps a reused connection working after refusing requests', async () => {
+    await withGateway(async (port) => {
+      const agent = new Agent({ keepAlive: true, maxSockets: 1 });
+      const statuses: number[] = [];
+      try {
+        for (const [method, path] of [
+          ['GET', '/v1/models'],
+          ['POST', '/api/event_logging/batch'],
+          ['POST', '/v1/messages'],
+        ] as const) {
+          const reply = await new Promise<number>((resolve, reject) => {
+            const req = request(
+              {
+                host: '127.0.0.1',
+                port,
+                method,
+                path,
+                agent,
+                headers: {
+                  host: `127.0.0.1:${port}`,
+                  'content-type': 'application/json',
+                  ...API_KEY,
+                },
+              },
+              (res) => {
+                res.resume();
+                res.on('end', () => resolve(res.statusCode ?? 0));
+              },
+            );
+            req.on('error', reject);
+            req.end(method === 'GET' ? undefined : '{"messages":[]}');
+          });
+          statuses.push(reply);
+        }
+      } finally {
+        agent.destroy();
+      }
+      expect(statuses).toEqual([404, 404, 200]);
     });
   });
 

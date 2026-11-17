@@ -248,7 +248,7 @@ work until that is fixed.
   asked to repeat a key, an email and a file's contact details, the model
   could only name `[AWS_KEY_1]`, `[EMAIL_1]`, `[EMAIL_2]` and `[PHONE_1]`.
   `scripts/live-check.sh` repeats this check.
-- `npm test`: 253 checks. They include every case from four independent
+- `npm test`: 254 checks. They include every case from four independent
   review passes (leaks, partial clean versions, timing, state handling,
   installer ownership, false positives, format gaps, block-message masks), chunked scanning against a single
   pass on random prompts, a run with all network access blocked, and the

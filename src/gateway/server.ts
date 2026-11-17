@@ -74,6 +74,7 @@ function sendError(
   status: number,
   type: ErrorType,
   message: string,
+  closeConnection = false,
 ): void {
   if (res.headersSent) {
     res.destroy();
@@ -83,6 +84,7 @@ function sendError(
   res.writeHead(status, {
     'content-type': 'application/json',
     'content-length': Buffer.byteLength(body),
+    ...(closeConnection ? { connection: 'close' } : {}),
   });
   res.end(method === 'HEAD' ? undefined : body);
 }
@@ -230,6 +232,8 @@ async function handle(
   const path = new URL(req.url ?? '/', 'http://gateway.invalid').pathname;
   const port = req.socket.localPort ?? 0;
 
+  const maxBodyBytes = opts.maxBodyBytes ?? 64 * 1024 * 1024;
+
   if (!isLoopbackHost(req.headers.host, port)) {
     sendError(
       res,
@@ -293,14 +297,16 @@ async function handle(
     return;
   }
 
-  const raw = await readBody(req, opts.maxBodyBytes ?? 64 * 1024 * 1024);
+  const raw = await readBody(req, maxBodyBytes);
   if (raw === null) {
+    // The rest of the body is not read, so this connection cannot be reused.
     sendError(
       res,
       method,
       413,
       'request_too_large',
       'Sether gateway refused a request larger than it checks; nothing was sent.',
+      true,
     );
     log(`${method} ${path} -> 413 (too large, not forwarded)`);
     return;
